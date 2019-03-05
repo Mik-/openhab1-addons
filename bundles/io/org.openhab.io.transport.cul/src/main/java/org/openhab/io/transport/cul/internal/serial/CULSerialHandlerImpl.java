@@ -68,7 +68,7 @@ public class CULSerialHandlerImpl extends AbstractCULHandler<CULSerialConfig> im
                         logger.warn("BufferedReader for serial connection is null");
                     } else {
                         String line = br.readLine();
-                        logger.trace("Serial event: received '{}'", line);
+                        logger.trace("Serial event: received on {} '{}'", config.getDeviceName(), line);
                         processNextLine(line);
                     }
                 } catch (IOException e) {
@@ -159,7 +159,7 @@ public class CULSerialHandlerImpl extends AbstractCULHandler<CULSerialConfig> im
                 if (bw == null) {
                     logger.warn("BufferedWriter for serial connection is null");
                 } else {
-                    logger.trace("Write serial: {}", command);
+                    logger.trace("Write serial to {}: {}", config.getDeviceAddress(), command);
                     bw.write(command);
                     bw.flush();
                 }

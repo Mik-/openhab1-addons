@@ -62,7 +62,7 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
                             logger.trace("Writing message: {}", command);
                             
                             writeMessage(command);
-                            waitOnCULResponse = true;
+                            waitOnCULResponse = isMessageAnsweredByCUL(command);
                             waitTimeout = 0;
                         } catch (CULCommunicationException e) {
                             logger.warn("Error while writing command to CUL", e);
@@ -72,7 +72,7 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
                 try {
                     Thread.sleep(10);
                 } catch (InterruptedException e) {
-                    logger.debug("Error while sleeping in SendThread", e);
+                    logger.debug("Sleep interrupted.");
                 }
 
                 waitTimeout += 1;
@@ -93,6 +93,10 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
         public void error(Exception e) {
             logger.trace("CUL error received: {}", e);
             waitOnCULResponse = false;
+        }
+        
+        public Boolean getIsSending() {
+            return waitOnCULResponse;
         }
     }
 
@@ -192,7 +196,6 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
     public void send(String command) {
         if (isMessageAllowed(command)) {
             sendQueue.add(command);
-            requestCreditReport();
         }
     }
 
@@ -216,6 +219,27 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
             return false;
         }
         return true;
+    }
+    
+    protected boolean isMessageAnsweredByCUL(String command) {
+        // Remove CRLF
+        if (command.endsWith("\r\n")) {
+            command.replace("\r\n", "");
+        }
+        
+        log.trace("Checking, wether {} should generate an answer from CUL", command);
+        
+        // credit report request
+        if (command.equals("X")) {
+            return true;
+        }
+        
+        // intertechno send
+        if (command.substring(0, 2).equals("is")) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -276,6 +300,13 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
      */
     @Override
     public int getCredit10ms() {
+        if (sendThread.getIsSending() != true) {
+            requestCreditReport();
+        } else {
+            log.trace("return last credit10ms, while sending");
+        }
+        
+        log.trace("return credit10ms = {}", credit10ms);
         return credit10ms;
     }
 
@@ -283,12 +314,44 @@ public abstract class AbstractCULHandler<T extends CULConfig> implements CULHand
      * write out request for a credit report directly to CUL
      */
     private void requestCreditReport() {
-        /* this requests a report which provides credit10ms */
+        final int timeout1s = 100;
+        int time;
+        int lastCredit10ms;
+        
         log.debug("Requesting credit report");
+
+        lastCredit10ms = credit10ms; 
+        
         try {
+            credit10ms = -1;
+            time = 0;
+            
             sendWithoutCheck("X\r\n");
+            
+            while (credit10ms == -1 && time < timeout1s) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    log.debug("Sleep interrupted.");
+                    time = timeout1s;
+                }
+                
+                time += 1;
+            }
+            
+            if (credit10ms == -1) {
+                // Restore last credit10ms
+                credit10ms = lastCredit10ms;
+                throw new CULCommunicationException("Timeout requesting credit report!");
+            }
+            
         } catch (CULCommunicationException e) {
             log.warn("Error requesting credit report from CUL", e);
+        }
+        
+        if (credit10ms == -1) {
+            // Restore last credit10ms
+            credit10ms = lastCredit10ms;
         }
     }
 
